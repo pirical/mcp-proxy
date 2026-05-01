@@ -1,5 +1,28 @@
 import { describe, expect, test } from "bun:test";
 import { spawn } from "bun";
+import type { Server } from "bun";
+
+interface Capture {
+  method: string;
+  url: string;
+  headers: Record<string, string>;
+  body: string;
+}
+
+function startFixtureServer(handler: (req: Request, captures: Capture[]) => Response | Promise<Response>): { server: Server; url: string; captures: Capture[] } {
+  const captures: Capture[] = [];
+  const server = Bun.serve({
+    port: 0,
+    async fetch(req) {
+      const body = await req.text();
+      const headers: Record<string, string> = {};
+      req.headers.forEach((v, k) => { headers[k] = v; });
+      captures.push({ method: req.method, url: req.url, headers, body });
+      return handler(req, captures);
+    },
+  });
+  return { server, url: `http://localhost:${server.port}/mcp`, captures };
+}
 
 const proxyPath = `${import.meta.dir}/mcp-proxy.ts`;
 
@@ -28,5 +51,37 @@ describe("argv handling", () => {
     expect(code).toBe(0);
     expect(stdout).toContain("pirical-mcp-proxy");
     expect(stdout).toContain("usage:");
+  });
+});
+
+describe("transport: single-JSON response", () => {
+  test("POSTs each stdin line as JSON; writes server's JSON response to stdout", async () => {
+    const { server, url, captures } = startFixtureServer(() =>
+      new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: { ok: true } }), {
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    try {
+      const proc = spawn(["bun", proxyPath, url], { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+      const enc = new TextEncoder();
+      proc.stdin.write(enc.encode(`${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" })}\n`));
+      proc.stdin.end();
+
+      const code = await proc.exited;
+      const stdout = await new Response(proc.stdout).text();
+
+      expect(code).toBe(0);
+      expect(stdout.trim()).toBe(JSON.stringify({ jsonrpc: "2.0", id: 1, result: { ok: true } }));
+
+      expect(captures).toHaveLength(1);
+      expect(captures[0]!.method).toBe("POST");
+      expect(captures[0]!.headers["content-type"]).toBe("application/json");
+      expect(captures[0]!.headers["accept"]).toContain("application/json");
+      expect(captures[0]!.headers["accept"]).toContain("text/event-stream");
+      expect(JSON.parse(captures[0]!.body)).toEqual({ jsonrpc: "2.0", id: 1, method: "ping" });
+    } finally {
+      server.stop(true);
+    }
   });
 });
