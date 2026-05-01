@@ -8,6 +8,13 @@ bridge pattern. Compiled with [Bun](https://bun.sh) into a single Mach-O
 executable so it can be dropped into a Cowork plugin's `bin/` directory
 with no `uv`, Python, or other runtime prerequisites on the user's Mac.
 
+The intended use case at Pirical is letting a local stdio MCP client
+(Claude Code, Cowork) talk to streamable-HTTP MCP servers hosted **inside
+Pirical's VPN**. The proxy runs on the user's Mac and makes outbound HTTPS
+to the URL it's given, so as long as the user's VPN is up, VPN-internal
+MCP endpoints become reachable from any stdio client. The proxy itself
+does not configure or require a VPN — it is transport-agnostic.
+
 This is **not** a fork of:
 - [`sparfenyuk/mcp-proxy`](https://github.com/sparfenyuk/mcp-proxy) (Python)
 - [`tidewave-ai/mcp_proxy_rust`](https://github.com/tidewave-ai/mcp_proxy_rust) (Rust)
