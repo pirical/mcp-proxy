@@ -19,7 +19,8 @@ in the `plp-analytics-mcp` repo (the spec that drove this design).
   stdlib + this repo's source.
 - Bun runtime version pinned in `.bun-version`. Bumped only via PR with
   a CHANGELOG entry.
-- All third-party GitHub Actions in workflows pinned to commit SHAs.
+- All third-party GitHub Actions pinned to major-version tags (e.g.
+  `actions/checkout@v4`); a follow-up will move them to full commit SHAs.
 - Releases ship SHA-256 sums + SLSA build-provenance attestations
   (signed via sigstore using GitHub OIDC).
 - Branch protection on `main`: required PR review + passing CI.
