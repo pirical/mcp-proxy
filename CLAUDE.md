@@ -1,6 +1,6 @@
 ---
 name: mcp-proxy
-description: Static-binary stdio↔streamable-HTTP MCP proxy for Apple Silicon Mac. Distributed as a Bun-compiled Mach-O via GH Releases. Consumed by Pirical MCP plugins (e.g. plp-analytics-mcp) at packaging time.
+description: Static-binary stdio↔streamable-HTTP MCP proxy for Apple Silicon Mac. Lets a local stdio MCP client (Claude Code, Cowork) reach streamable-HTTP MCP servers — in particular ones hosted inside Pirical's VPN. Distributed as a Bun-compiled Mach-O via GH Releases. Consumed by Pirical MCP plugins (e.g. plp-analytics-mcp) at packaging time.
 ---
 
 # pirical/mcp-proxy
@@ -9,6 +9,12 @@ A Pirical-original implementation of the stdio↔streamable-HTTP MCP transport
 bridge pattern. Built so Pirical Cowork plugins can ship a self-contained
 binary, with no `uv`, Python, or other runtime prerequisites on the user's
 Mac.
+
+The primary use case is reaching **streamable-HTTP MCP servers hosted inside
+Pirical's VPN** from a local stdio MCP client (Claude Code, Cowork, etc.).
+The proxy runs on the user's Mac, so the outbound HTTPS request to the
+VPN-internal URL goes through whatever VPN the user already has active —
+the proxy itself is transport-agnostic and does not handle VPN setup.
 
 This is **not** a fork of `sparfenyuk/mcp-proxy` (Python),
 `tidewave-ai/mcp_proxy_rust` (Rust), or `punkpeye/mcp-proxy` (TypeScript).
