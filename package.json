@@ -1,0 +1,18 @@
+{
+  "name": "pirical-mcp-proxy",
+  "version": "1.0.0",
+  "description": "Static-binary stdio↔streamable-HTTP MCP proxy. Apple Silicon Mac.",
+  "type": "module",
+  "module": "mcp-proxy.ts",
+  "bin": {
+    "pirical-mcp-proxy": "./mcp-proxy.ts"
+  },
+  "scripts": {
+    "build": "bun build mcp-proxy.ts --compile --target=bun-darwin-arm64 --minify --outfile=dist/pirical-mcp-proxy",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5"
+  }
+}
