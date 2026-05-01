@@ -1,0 +1,102 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_version:
+        description: "Version to release (must match package.json — no leading 'v')"
+        required: true
+
+permissions:
+  contents: write
+  id-token: write       # required by attest-build-provenance for OIDC
+  attestations: write   # required by attest-build-provenance
+
+jobs:
+  release:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Confirm version matches package.json
+        run: |
+          INPUT="${{ inputs.confirm_version }}"
+          FILE_VERSION=$(jq -r .version package.json)
+          if [ "$INPUT" != "$FILE_VERSION" ]; then
+            echo "::error::Input version $INPUT != package.json version $FILE_VERSION."
+            exit 1
+          fi
+          echo "VERSION=$FILE_VERSION" >> "$GITHUB_ENV"
+
+      - name: Refuse if tag already exists
+        run: |
+          TAG="v${VERSION}"
+          if git ls-remote --tags origin "refs/tags/$TAG" | grep -q "refs/tags/$TAG$"; then
+            echo "::error::Tag $TAG already exists on origin. Bump package.json and retry."
+            exit 1
+          fi
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Install + test
+        run: |
+          bun install --frozen-lockfile
+          bun test
+
+      - name: Build binary
+        run: |
+          mkdir -p dist
+          bun build mcp-proxy.ts --compile --target=bun-darwin-arm64 --minify --outfile=dist/pirical-mcp-proxy
+
+      - name: Smoke-test binary
+        run: |
+          dist/pirical-mcp-proxy --version
+          dist/pirical-mcp-proxy --help
+
+      - name: Package + checksum
+        run: |
+          tar -czf pirical-mcp-proxy-aarch64-apple-darwin.tar.gz -C dist pirical-mcp-proxy
+          shasum -a 256 pirical-mcp-proxy-aarch64-apple-darwin.tar.gz | awk '{print $1}' > pirical-mcp-proxy-aarch64-apple-darwin.tar.gz.sha256
+          echo "Tarball SHA-256:"
+          cat pirical-mcp-proxy-aarch64-apple-darwin.tar.gz.sha256
+
+      - name: Generate SLSA build-provenance attestation
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: pirical-mcp-proxy-aarch64-apple-darwin.tar.gz
+
+      - name: Tag the commit
+        run: |
+          TAG="v${VERSION}"
+          git tag "$TAG"
+          git push origin "$TAG"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="v${VERSION}"
+          SHA256=$(cat pirical-mcp-proxy-aarch64-apple-darwin.tar.gz.sha256)
+          NOTES_FILE=$(mktemp)
+          {
+            echo "Static-binary MCP stdio↔streamable-HTTP proxy. Apple Silicon Mac."
+            echo
+            echo "**Artifact SHA-256:** \`${SHA256}\`"
+            echo
+            echo "Verify the SLSA build-provenance attestation:"
+            echo
+            echo '```sh'
+            echo "gh attestation verify --owner pirical pirical-mcp-proxy-aarch64-apple-darwin.tar.gz"
+            echo '```'
+            echo
+            echo "See [CHANGELOG.md](./CHANGELOG.md) for release notes."
+          } > "$NOTES_FILE"
+          gh release create "$TAG" \
+            pirical-mcp-proxy-aarch64-apple-darwin.tar.gz \
+            pirical-mcp-proxy-aarch64-apple-darwin.tar.gz.sha256 \
+            --title "$TAG" \
+            --notes-file "$NOTES_FILE"
