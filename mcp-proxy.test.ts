@@ -54,6 +54,36 @@ describe("argv handling", () => {
   });
 });
 
+describe("transport: Mcp-Session-Id", () => {
+  test("captures Mcp-Session-Id from response and replays on subsequent requests", async () => {
+    const sessionId = "sess-abc-123";
+    let requestCount = 0;
+    const { server, url, captures } = startFixtureServer(() => {
+      requestCount += 1;
+      return new Response(JSON.stringify({ jsonrpc: "2.0", id: requestCount, result: { n: requestCount } }), {
+        headers: { "Content-Type": "application/json", "Mcp-Session-Id": sessionId },
+      });
+    });
+
+    try {
+      const proc = spawn(["bun", proxyPath, url], { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+      const enc = new TextEncoder();
+      proc.stdin.write(enc.encode(`${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" })}\n`));
+      proc.stdin.write(enc.encode(`${JSON.stringify({ jsonrpc: "2.0", id: 2, method: "ping" })}\n`));
+      proc.stdin.end();
+
+      const code = await proc.exited;
+      expect(code).toBe(0);
+
+      expect(captures).toHaveLength(2);
+      expect(captures[0]!.headers["mcp-session-id"]).toBeUndefined();
+      expect(captures[1]!.headers["mcp-session-id"]).toBe(sessionId);
+    } finally {
+      server.stop(true);
+    }
+  });
+});
+
 describe("transport: SSE response", () => {
   test("decodes server-sent-event data lines and writes each as a stdout line", async () => {
     const sseBody = [

@@ -93,6 +93,8 @@ async function main(): Promise<number> {
     return 2;
   }
 
+  const session: { id?: string } = {};
+
   for await (const line of readStdinLines()) {
     let message: unknown;
     try {
@@ -102,20 +104,22 @@ async function main(): Promise<number> {
       continue;
     }
 
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      "Accept": "application/json, text/event-stream",
+    };
+    if (session.id) headers["Mcp-Session-Id"] = session.id;
+
     let response: Response;
     try {
-      response = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Accept": "application/json, text/event-stream",
-        },
-        body: JSON.stringify(message),
-      });
+      response = await fetch(url, { method: "POST", headers, body: JSON.stringify(message) });
     } catch (err) {
       process.stderr.write(`mcp-proxy: fetch failed: ${(err as Error).message}\n`);
       continue;
     }
+
+    const newSessionId = response.headers.get("Mcp-Session-Id");
+    if (newSessionId) session.id = newSessionId;
 
     if (!response.ok) {
       process.stderr.write(`mcp-proxy: HTTP ${response.status} ${response.statusText}\n`);
