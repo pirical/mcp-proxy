@@ -150,3 +150,66 @@ describe("transport: single-JSON response", () => {
     }
   });
 });
+
+describe("transport: error paths", () => {
+  test("HTTP 5xx is logged to stderr; loop continues to next stdin line", async () => {
+    let n = 0;
+    const { server, url } = startFixtureServer(() => {
+      n += 1;
+      if (n === 1) return new Response("server boom", { status: 500 });
+      return new Response(JSON.stringify({ jsonrpc: "2.0", id: 2, result: "ok" }), {
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+
+    try {
+      const proc = spawn(["bun", proxyPath, url], { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+      const enc = new TextEncoder();
+      proc.stdin.write(enc.encode(`${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" })}\n`));
+      proc.stdin.write(enc.encode(`${JSON.stringify({ jsonrpc: "2.0", id: 2, method: "ping" })}\n`));
+      proc.stdin.end();
+
+      const code = await proc.exited;
+      const stdout = await new Response(proc.stdout).text();
+      const stderr = await new Response(proc.stderr).text();
+
+      expect(code).toBe(0);
+      expect(stderr).toContain("HTTP 500");
+      expect(stdout.trim().split("\n")).toHaveLength(1);
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("malformed stdin JSON is logged to stderr; loop continues", async () => {
+    const { server, url, captures } = startFixtureServer(() =>
+      new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: "ok" }), {
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    try {
+      const proc = spawn(["bun", proxyPath, url], { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+      const enc = new TextEncoder();
+      proc.stdin.write(enc.encode(`not json\n`));
+      proc.stdin.write(enc.encode(`${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" })}\n`));
+      proc.stdin.end();
+
+      const code = await proc.exited;
+      const stderr = await new Response(proc.stderr).text();
+
+      expect(code).toBe(0);
+      expect(stderr).toContain("skipping malformed JSON");
+      expect(captures).toHaveLength(1);
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  test("clean exit on stdin EOF with no input", async () => {
+    const proc = spawn(["bun", proxyPath, "http://localhost:1/mcp"], { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+    proc.stdin.end();
+    const code = await proc.exited;
+    expect(code).toBe(0);
+  });
+});
