@@ -54,6 +54,41 @@ describe("argv handling", () => {
   });
 });
 
+describe("transport: SSE response", () => {
+  test("decodes server-sent-event data lines and writes each as a stdout line", async () => {
+    const sseBody = [
+      "event: message",
+      `data: ${JSON.stringify({ jsonrpc: "2.0", id: 1, result: { partial: 1 } })}`,
+      "",
+      "event: message",
+      `data: ${JSON.stringify({ jsonrpc: "2.0", id: 1, result: { partial: 2 } })}`,
+      "",
+    ].join("\n") + "\n";
+
+    const { server, url } = startFixtureServer(() =>
+      new Response(sseBody, { headers: { "Content-Type": "text/event-stream" } }),
+    );
+
+    try {
+      const proc = spawn(["bun", proxyPath, url], { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+      const enc = new TextEncoder();
+      proc.stdin.write(enc.encode(`${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" })}\n`));
+      proc.stdin.end();
+
+      const code = await proc.exited;
+      const stdout = await new Response(proc.stdout).text();
+
+      expect(code).toBe(0);
+      const lines = stdout.trim().split("\n");
+      expect(lines).toHaveLength(2);
+      expect(JSON.parse(lines[0]!)).toEqual({ jsonrpc: "2.0", id: 1, result: { partial: 1 } });
+      expect(JSON.parse(lines[1]!)).toEqual({ jsonrpc: "2.0", id: 1, result: { partial: 2 } });
+    } finally {
+      server.stop(true);
+    }
+  });
+});
+
 describe("transport: single-JSON response", () => {
   test("POSTs each stdin line as JSON; writes server's JSON response to stdout", async () => {
     const { server, url, captures } = startFixtureServer(() =>

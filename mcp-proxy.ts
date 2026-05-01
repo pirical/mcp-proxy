@@ -46,6 +46,35 @@ async function* readStdinLines(): AsyncGenerator<string> {
   if (buffer.length > 0) yield buffer;
 }
 
+async function* parseSseEvents(body: ReadableStream<Uint8Array>): AsyncGenerator<{ event: string; data: string }> {
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let event = "message";
+  let data = "";
+
+  for await (const chunk of body as unknown as AsyncIterable<Uint8Array>) {
+    buffer += decoder.decode(chunk, { stream: true });
+    let newlineIdx = buffer.indexOf("\n");
+    while (newlineIdx !== -1) {
+      const line = buffer.slice(0, newlineIdx).replace(/\r$/, "");
+      buffer = buffer.slice(newlineIdx + 1);
+
+      if (line === "") {
+        if (data.length > 0) yield { event, data };
+        event = "message";
+        data = "";
+      } else if (line.startsWith("event:")) {
+        event = line.slice(6).trim();
+      } else if (line.startsWith("data:")) {
+        data = data.length > 0 ? `${data}\n${line.slice(5).trim()}` : line.slice(5).trim();
+      }
+      newlineIdx = buffer.indexOf("\n");
+    }
+  }
+  buffer += decoder.decode();
+  if (data.length > 0) yield { event, data };
+}
+
 async function main(): Promise<number> {
   const args = process.argv.slice(2);
 
@@ -95,8 +124,10 @@ async function main(): Promise<number> {
 
     const contentType = response.headers.get("Content-Type") ?? "";
     if (contentType.startsWith("text/event-stream")) {
-      // SSE handling lands in Task 4.
-      process.stderr.write(`mcp-proxy: SSE response not yet implemented\n`);
+      if (!response.body) continue;
+      for await (const evt of parseSseEvents(response.body)) {
+        process.stdout.write(evt.data + "\n");
+      }
       continue;
     }
 
